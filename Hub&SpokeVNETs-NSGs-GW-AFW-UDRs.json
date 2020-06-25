@@ -1,0 +1,469 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+      "numberOfFirewallPublicIPAddresses": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 1,
+      "maxValue": 100,
+      "metadata": {
+        "description": "Number of public IP addresses for the Azure Firewall"
+      }
+    }
+  },
+  "variables": {
+    "hubVnetName": "grpeunpnet01",
+    "hubVnetPrefix": "10.102.0.0/16",
+    "mgmtSubnetName": "ManagementSubnet",
+    "mgmtSubnetPrefix": "10.102.1.0/24",
+    "azureFirewallSubnetName": "AzureFirewallSubnet",
+    "azureFirewallSubnetPrefix": "10.102.2.0/26",
+    "gatewaySubnetName": "GatewaySubnet",
+    "gatewaySubnetPrefix": "10.102.3.0/27",
+    "gatewayName": "hubVpnGateway",
+    "gatewayPIPName": "hubVpnGatewayPublicIp",
+    "subnetGatewayId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('gatewaySubnetName'))]",
+    "Spoke1VnetName": "Spoke1VNET",
+    "Spoke1VnetPrefix": "10.103.0.0/16",
+    "Spoke2VnetName": "Spoke2VNET",
+    "Spoke2VnetPrefix": "10.104.0.0/16",
+    "spokeWorkloadSubnetName": "WorkloadSubnet",
+    "Spoke1WorkloadSubnetPrefix": "10.103.0.0/24",
+    "Spoke2WorkloadSubnetPrefix": "10.104.0.0/24",
+    "nextHopIP": "10.102.2.4",
+    "spoke1RouteTableName": "Spoke1RouteTable",
+    "spoke2RouteTableName": "Spoke2RouteTable",
+    "firewallName": "FW-01",
+    "mgmtSubnetNSG": "mgmtSubnetNSG",
+    "spoke1WorkloadSubnetNSG": "spoke1WorkloadSubnetNSG",
+    "spoke2WorkloadSubnetNSG": "spoke2WorkloadSubnetNSG",
+    "azureFirewallSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/subnets',variables('hubVnetName'), 'AzureFirewallSubnet')]",
+    "azureFirewallPublicIpId": "[resourceId('Microsoft.Network/publicIPAddresses',variables('firewalPublicIPAddress'))]",
+    "firewalPublicIPAddress": "fwpublic_ip",
+    "hubID": "[resourceId('Microsoft.Network/virtualNetworks/', variables('hubVnetName'))]",
+    "Spoke1ID": "[resourceId('Microsoft.Network/virtualNetworks/', variables('Spoke1VnetName'))]",
+    "Spoke2ID": "[resourceId('Microsoft.Network/virtualNetworks/', variables('Spoke2VnetName'))]",
+     "azureFirewallSubnetJSON": "[json(format('{{\"id\": \"{0}\"}}', variables('azureFirewallSubnetId')))]",
+    "copy": [
+      {
+        "name": "azureFirewallIpConfigurations",
+        "count": "[parameters('numberOfFirewallPublicIPAddresses')]",
+        "input": {
+          "name": "[concat('IpConf', copyIndex('azureFirewallIpConfigurations'))]",
+          "properties": {
+            "subnet": "[if(equals(copyIndex('azureFirewallIpConfigurations'), 0), variables('azureFirewallSubnetJSON'), json('null'))]",
+            "publicIPAddress": {
+              "id": "[concat(variables('azureFirewallPublicIpId'), add(copyIndex('azureFirewallIpConfigurations'), 1))]"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "resources": [
+       {
+      "type": "Microsoft.Network/routeTables",
+      "name": "[variables('spoke1RouteTableName')]",
+      "apiVersion": "2019-04-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "disableBgpRoutePropagation": false,
+        "routes": [
+          {
+            "name": "AzfwDefaultRoute",
+            "properties": {
+              "addressPrefix": "0.0.0.0/0",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "[variables('nextHopIP')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/routeTables",
+      "name": "[variables('spoke2RouteTableName')]",
+      "apiVersion": "2019-04-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "disableBgpRoutePropagation": false,
+        "routes": [
+          {
+            "name": "AzfwDefaultRoute",
+            "properties": {
+              "addressPrefix": "0.0.0.0/0",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "[variables('nextHopIP')]"
+            }
+          }
+        ]
+      }
+    },
+
+{
+      "name": "[concat(variables('firewalPublicIPAddress'), add(copyIndex(), 1))]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2019-04-01",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "copy": {
+        "name": "publicIpCopy",
+        "count": "[parameters('numberOfFirewallPublicIPAddresses')]"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "publicIPAddressVersion": "IPv4"
+      }
+    },
+     {
+      "name": "[variables('mgmtSubnetNSG')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2019-04-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "RDP",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 1000,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[variables('spoke1WorkloadSubnetNSG')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2019-04-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+        ]
+      }
+    },
+    {
+      "name": "[variables('spoke2WorkloadSubnetNSG')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2019-04-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+        ]
+      }
+    },
+    {
+      "comments": "HUB Virtual Network (VNet)",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('hubVnetName')]",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('mgmtSubnetNSG'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('hubVnetPrefix')]"
+          ]
+        },
+        "enableDdosProtection": false,
+        "enableVmProtection": false
+      }
+    },
+    {
+      "comments": "Management Subnet",
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "name": "[concat(variables('hubVnetName'), '/', variables('mgmtSubnetName'))]",
+      "apiVersion": "2019-11-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]"
+      ],
+      "properties": {
+        "addressPrefix": "[variables('mgmtSubnetPrefix')]",
+         "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('mgmtSubnetNSG'))]"
+              }
+      }
+    },
+    {
+      "comments": "Azure Firewall Subnet",
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "name": "[concat(variables('hubVnetName'), '/', variables('azureFirewallSubnetName'))]",
+      "apiVersion": "2019-11-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('mgmtSubnetName'))]"
+      ],
+      "properties": {
+        "addressPrefix": "[variables('azureFirewallSubnetPrefix')]"
+      }
+    },
+    {
+      "comments": "Gateway Subnet",
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "name": "[concat(variables('hubVnetName'), '/', variables('gatewaySubnetName'))]",
+      "apiVersion": "2019-11-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('mgmtSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('azureFirewallSubnetName'))]"
+      ],
+      "properties": {
+        "addressPrefix": "[variables('gatewaySubnetPrefix')]"
+      }
+    },
+    {
+      "comments": "Spoke 1 Spoke Virtual Network (VNet)",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('Spoke1VnetName')]",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+       "dependsOn": [
+    "[resourceId('Microsoft.Network/routeTables', variables('spoke1RouteTableName'))]",
+    "[resourceId('Microsoft.Network/networkSecurityGroups', variables('spoke1WorkloadSubnetNSG'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('Spoke1VnetPrefix')]"
+          ]
+        },
+        "enableDdosProtection": false,
+        "enableVmProtection": false
+      }
+    },
+    {
+      "comments": "Spoke 1 Workload Subnet",
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "name": "[concat(variables('Spoke1VnetName'), '/', variables('spokeWorkloadSubnetName'))]",
+      "apiVersion": "2019-11-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('Spoke1VnetName'))]"
+      ],
+      "properties": {
+        "addressPrefix": "[variables('Spoke1WorkloadSubnetPrefix')]",
+         "routeTable": {
+                "id": "[resourceId('Microsoft.Network/routeTables', variables('spoke1RouteTableName'))]"
+              },
+         "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('spoke1WorkloadSubnetNSG'))]"
+              }
+      }      
+    },
+    {
+      "comments": "Spoke 2 Spoke Virtual Network (VNet)",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('Spoke2VnetName')]",
+      "apiVersion": "2019-11-01",
+      "location": "[parameters('location')]",
+        "dependsOn": [
+    "[resourceId('Microsoft.Network/routeTables', variables('spoke2RouteTableName'))]",
+    "[resourceId('Microsoft.Network/networkSecurityGroups', variables('spoke2WorkloadSubnetNSG'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('Spoke2VnetPrefix')]"
+          ]
+        },
+        "enableDdosProtection": false,
+        "enableVmProtection": false
+      }
+    },
+    {
+      "comments": "Spoke 2 Workload Subnet",
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "name": "[concat(variables('Spoke2VnetName'), '/', variables('spokeWorkloadSubnetName'))]",
+      "apiVersion": "2019-11-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('Spoke2VnetName'))]"
+      ],
+      "properties": {
+        "addressPrefix": "[variables('Spoke2WorkloadSubnetPrefix')]",
+          "routeTable": {
+                "id": "[resourceId('Microsoft.Network/routeTables', variables('spoke2RouteTableName'))]"
+              },
+               "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('spoke1WorkloadSubnetNSG'))]"
+              }
+      }
+    },
+        {
+      "apiVersion": "2019-11-01",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[variables('gatewayPIPName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      }
+    },
+    {
+      "apiVersion": "2019-11-01",
+      "type": "Microsoft.Network/virtualNetworkGateways",
+      "name": "[variables('gatewayName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('gatewayPIPName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('gatewaySubnetName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[variables('subnetGatewayId')]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('gatewayPIPName'))]"
+              }
+            },
+            "name": "vnetGatewayConfig"
+          }
+        ],
+        "sku": {
+          "name": "VpnGw1",
+          "tier": "VpnGw1"
+        },
+        "gatewayType": "Vpn",
+        "vpnType": "RouteBased",
+        "enableBgp": false
+      }
+    },
+   {
+      "apiVersion": "2019-04-01",
+      "type": "Microsoft.Network/azureFirewalls",
+      "name": "[variables('firewallName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('azureFirewallSubnetName'))]",
+        "publicIpCopy"
+      ],
+      "properties": {
+        "ipConfigurations": "[variables('azureFirewallIpConfigurations')]",
+        "applicationRuleCollections": [
+        ],
+        "networkRuleCollections": [
+        ]
+      }
+    },
+
+    {
+      "apiVersion": "2019-11-01",
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "name": "[concat(variables('hubVnetName'), '/Peering_', variables('hubVnetName'), '_', variables('Spoke1VnetName'))]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('mgmtSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('azureFirewallSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('gatewaySubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('Spoke1VnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('Spoke1VnetName'), variables('spokeWorkloadSubnetName'))]"
+      ],
+      "properties": {
+        "allowVirtualNetworkAccess": true,
+        "allowForwardedTraffic": true,
+        "allowGatewayTransit": true,
+        "useRemoteGateways": false,
+        "remoteVirtualNetwork": {
+          "id": "[variables('Spoke1ID')]"
+        }
+      }
+    },
+    {
+      "apiVersion": "2019-11-01",
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "name": "[concat(variables('hubVnetName'), '/gwPeering_', variables('hubVnetName'), '_', variables('Spoke2VnetName'))]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('mgmtSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('azureFirewallSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('gatewaySubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('Spoke2VnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('Spoke2VnetName'), variables('spokeWorkloadSubnetName'))]"
+      ],
+      "properties": {
+        "allowVirtualNetworkAccess": true,
+        "allowForwardedTraffic": true,
+        "allowGatewayTransit": true,
+        "useRemoteGateways": false,
+        "remoteVirtualNetwork": {
+          "id": "[variables('Spoke2ID')]"
+        }
+      }
+    },
+    {
+      "apiVersion": "2019-11-01",
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "name": "[concat(variables('Spoke1VnetName'), '/gwPeering_', variables('Spoke1VnetName'), '_', variables('hubVnetName'))]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('mgmtSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('azureFirewallSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('gatewaySubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('Spoke1VnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('Spoke1VnetName'), variables('spokeWorkloadSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworkGateways', variables('gatewayName'))]"
+      ],
+      "properties": {
+        "allowVirtualNetworkAccess": true,
+        "allowForwardedTraffic": true,
+        "allowGatewayTransit": false,
+        "useRemoteGateways": true,
+        "remoteVirtualNetwork": {
+          "id": "[variables('hubID')]"
+        }
+      }
+    },
+    {
+
+      "apiVersion": "2019-11-01",
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "name": "[concat(variables('Spoke2VnetName'), '/gwPeering_', variables('Spoke2VnetName'), '_', variables('hubVnetName'))]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('hubVnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('mgmtSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('azureFirewallSubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('hubVnetName'), variables('gatewaySubnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('Spoke2VnetName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('Spoke2VnetName'), variables('spokeWorkloadSubnetName'))]",
+         "[resourceId('Microsoft.Network/virtualNetworkGateways', variables('gatewayName'))]"
+      ],
+      "properties": {
+        "allowVirtualNetworkAccess": true,
+        "allowForwardedTraffic": true,
+        "allowGatewayTransit": false,
+        "useRemoteGateways": true,
+        "remoteVirtualNetwork": {
+          "id": "[variables('hubID')]"
+        }
+      }
+    }
+  ],
+  
+  "outputs": {
+
+  }
+}

@@ -1,0 +1,81 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+    "hubVnetName": {
+        "value": "grpeunpnet01"
+    },
+    "hubVnetPrefix": {
+        "value": "10.102.0.0/16"
+    },
+    "mgmtSubnetName": {
+        "value": "ManagementSubnet"
+    },
+    "mgmtSubnetPrefix": {
+        "value": "10.102.1.0/24"
+    },
+    "azureFirewallSubnetName": {
+        "value": "AzureFirewallSubnet"
+    },
+    "azureFirewallSubnetPrefix": {
+        "value": "10.102.2.0/26"
+    },
+    "gatewaySubnetName": {
+        "value": "gatewaySubnet"
+    },
+    "gatewaySubnetPrefix": {
+      "value": "10.102.3.0/27"
+    },
+    "gatewayName": {
+       "value": "hubVpnGateway"
+    },
+    "gatewayPIPName": {
+       "value": "hubVpnGatewayPublicIp"
+    },
+    "Spoke1VnetName": {
+        "value": "Spoke1VNET"
+    },
+    "Spoke1VnetPrefix": {
+        "value": "10.103.0.0/16"
+    },
+    "Spoke2VnetName": {
+        "value": "Spoke2VNET"
+    },
+    "Spoke2VnetPrefix": {
+        "value": "10.104.0.0/16"
+    },
+    "spokeWorkloadSubnetName": {
+        "value": "WorkloadSubnet"
+    },
+    "Spoke1WorkloadSubnetPrefix": {
+        "value": "10.103.0.0/24"
+    },
+    "Spoke2WorkloadSubnetPrefix": {
+        "value": "10.104.0.0/24"
+    },
+    "nextHopIP": {
+        "value": "10.102.2.4"
+    },
+    "spoke1RouteTableName": {
+        "value": "Spoke1RouteTable"
+    },
+    "spoke2RouteTableName": {
+        "value": "Spoke2RouteTable"
+    },
+    "firewallName": {
+        "value": "FW-01"
+    },
+    "mgmtSubnetNSG": {
+        "value": "mgmtSubnetNSG"
+    },
+    "spoke1WorkloadSubnetNSG": {
+        "value": "spoke1WorkloadSubnetNSG"
+    },
+    "spoke2WorkloadSubnetNSG": {
+        "value": "spoke2WorkloadSubnetNSG"
+    },
+    "firewalPublicIPAddress": {
+        "value": "fwpublic_ip"
+    }
+    }
+  }
